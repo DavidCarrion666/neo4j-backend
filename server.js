@@ -116,7 +116,7 @@ app.get("/api/precios-producto", async (req, res) => {
   try {
     const result = await session.run(
       `
-      MATCH (pr:Producto)-[:PRECIO_DE]->(precio)
+      MATCH (precio)-[:ES_PARA_PRODUCTO]->(pr:Producto)
       WHERE pr.nombre IN $productos
       RETURN pr.nombre AS producto, precio.anio AS anio, AVG(toFloat(precio.valorUSD)) AS precio_prom
       ORDER BY producto, anio
@@ -146,8 +146,9 @@ app.get("/api/ventas-por-provincia", async (req, res) => {
   try {
     const result = await session.run(
       `
-      MATCH (prod:Producto)-[:PRECIO_DE]->(precio)<-[:REGISTRA_PRECIO]-(canton:Canton)<-[:TIENE_CANTON]-(prov:Provincia)
+      MATCH (precio)-[:ES_PARA_PRODUCTO]->(prod:Producto)
       WHERE prod.nombre IN $productos
+      MATCH (precio)<-[:REGISTRA_PRECIO]-(canton:Canton)<-[:TIENE_CANTON]-(prov:Provincia)
       RETURN prov.nombre AS provincia, COUNT(precio) AS ventas
       ORDER BY ventas DESC
       `,
