@@ -10,7 +10,7 @@ const driver = neo4j.driver(
   neo4j.auth.basic("neo4j", "f5WuJZc5uBGxWJ4AJInjgPZQD99OYd8inNQ4FyHZ6DE")
 );
 
-// Endpoint: precios por cantón o provincia (soporta varios)
+// Endpoint: precios por cantón o provincia (multi-select)
 app.get("/api/precios", async (req, res) => {
   const { canton, provincia } = req.query;
   const session = driver.session({ database: "neo4j" });
@@ -85,6 +85,51 @@ app.get("/api/provincias", async (req, res) => {
     res.json(result.records.map(r => r.get("nombre")));
   } catch (e) {
     res.status(500).json({ error: e.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// Endpoint: lista de productos
+app.get("/api/productos", async (req, res) => {
+  const session = driver.session({ database: "neo4j" });
+  try {
+    const result = await session.run(
+      "MATCH (p:Producto) RETURN DISTINCT p.nombre AS nombre ORDER BY nombre"
+    );
+    res.json(result.records.map(r => r.get("nombre")));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// Endpoint: precios promedio por año de productos (para el gráfico de barras)
+app.get("/api/precios-producto", async (req, res) => {
+  const { productos } = req.query;
+  if (!productos) return res.status(400).json({ error: "Falta el parámetro productos" });
+
+  const productosArr = productos.split(",").map(x => x.trim());
+  const session = driver.session({ database: "neo4j" });
+
+  try {
+    const result = await session.run(
+      `
+      MATCH (pr:Producto)-[:PRECIO_DE]->(precio)
+      WHERE pr.nombre IN $productos
+      RETURN pr.nombre AS producto, precio.anio AS anio, AVG(toFloat(precio.valorUSD)) AS precio_prom
+      ORDER BY producto, anio
+      `,
+      { productos: productosArr }
+    );
+    res.json(result.records.map(r => ({
+      producto: r.get("producto"),
+      anio: r.get("anio"),
+      precio_prom: r.get("precio_prom")
+    })));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   } finally {
     await session.close();
   }
