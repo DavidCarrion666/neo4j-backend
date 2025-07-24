@@ -135,6 +135,35 @@ app.get("/api/precios-producto", async (req, res) => {
   }
 });
 
+// NUEVO Endpoint: cantidad de ventas por provincia (para pie chart)
+app.get("/api/ventas-por-provincia", async (req, res) => {
+  // productos debe ser string (separado por coma)
+  const { productos } = req.query;
+  if (!productos) return res.status(400).json({ error: "Falta el parámetro productos" });
+
+  const productosArr = productos.split(",").map(x => x.trim());
+  const session = driver.session({ database: "neo4j" });
+  try {
+    const result = await session.run(
+      `
+      MATCH (prod:Producto)-[:PRECIO_DE]->(precio)<-[:REGISTRA_PRECIO]-(canton:Canton)<-[:TIENE_CANTON]-(prov:Provincia)
+      WHERE prod.nombre IN $productos
+      RETURN prov.nombre AS provincia, COUNT(precio) AS ventas
+      ORDER BY ventas DESC
+      `,
+      { productos: productosArr }
+    );
+    res.json(result.records.map(r => ({
+      provincia: r.get("provincia"),
+      ventas: r.get("ventas").toNumber ? r.get("ventas").toNumber() : r.get("ventas")
+    })));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  } finally {
+    await session.close();
+  }
+});
+
 // Puerto
 const port = process.env.PORT || 3001;
 app.listen(port, () => {
