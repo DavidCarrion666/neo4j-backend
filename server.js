@@ -10,6 +10,10 @@ const driver = neo4j.driver(
   neo4j.auth.basic("neo4j", "f5WuJZc5uBGxWJ4AJInjgPZQD99OYd8inNQ4FyHZ6DE")
 );
 
+// ------------------------------------------
+// ENDPOINTS ORIGINALES
+// ------------------------------------------
+
 // Endpoint: precios por cantón o provincia (multi-select)
 app.get("/api/precios", async (req, res) => {
   const { canton, provincia } = req.query;
@@ -135,9 +139,8 @@ app.get("/api/precios-producto", async (req, res) => {
   }
 });
 
-// NUEVO Endpoint: cantidad de ventas por provincia (para pie chart)
+// Endpoint: cantidad de ventas por provincia (para pie chart)
 app.get("/api/ventas-por-provincia", async (req, res) => {
-  // productos debe ser string (separado por coma)
   const { productos } = req.query;
   if (!productos) return res.status(400).json({ error: "Falta el parámetro productos" });
 
@@ -165,7 +168,72 @@ app.get("/api/ventas-por-provincia", async (req, res) => {
   }
 });
 
-// Puerto
+// ------------------------------------------
+// ENDPOINTS NUEVOS PARA CONSUMO DE CAFÉ POR PAÍS
+// ------------------------------------------
+
+// Endpoint: lista de países
+app.get("/api/paises", async (req, res) => {
+  const session = driver.session({ database: "neo4j" });
+  try {
+    const result = await session.run(
+      "MATCH (p:Pais) RETURN DISTINCT p.nombre AS nombre ORDER BY nombre"
+    );
+    res.json(result.records.map(r => r.get("nombre")));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// Endpoint: consumo histórico por país (puedes filtrar por tipo de café opcional)
+app.get("/api/consumo", async (req, res) => {
+  const { paises, tipo } = req.query;
+  if (!paises) return res.status(400).json({ error: "Falta el parámetro paises" });
+
+  const paisesArr = paises.split(",").map(x => x.trim());
+  const session = driver.session({ database: "neo4j" });
+
+  try {
+    let cypher, params;
+    if (tipo) {
+      cypher = `
+        MATCH (p:Pais)-[c:CONSUMED]->(t:CoffeeType)
+        WHERE p.nombre IN $paises AND t.name = $tipo
+        RETURN p.nombre AS pais, t.name AS tipo, c.year AS anio, c.value AS consumo
+        ORDER BY pais, anio
+      `;
+      params = { paises: paisesArr, tipo };
+    } else {
+      cypher = `
+        MATCH (p:Pais)-[c:CONSUMED]->(t:CoffeeType)
+        WHERE p.nombre IN $paises
+        RETURN p.nombre AS pais, t.name AS tipo, c.year AS anio, c.value AS consumo
+        ORDER BY pais, anio
+      `;
+      params = { paises: paisesArr };
+    }
+
+    const result = await session.run(cypher, params);
+    const consumo = result.records.map(r => ({
+      pais: r.get("pais"),
+      tipo: r.get("tipo"),
+      anio: r.get("anio"),
+      consumo: r.get("consumo")
+    }));
+    res.json(consumo);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  } finally {
+    await session.close();
+  }
+});
+
+// ------------------------------------------
+// INICIAR SERVIDOR
+// ------------------------------------------
+
 const port = process.env.PORT || 3001;
 app.listen(port, () => {
   console.log(`API corriendo en puerto ${port}`);
