@@ -187,40 +187,30 @@ app.get("/api/paises", async (req, res) => {
   }
 });
 
-// Endpoint: consumo histórico por país (puedes filtrar por tipo de café opcional)
+// Endpoint: consumo histórico por país (devuelve consumo como número)
 app.get("/api/consumo", async (req, res) => {
-  const { paises, tipo } = req.query;
+  const { paises } = req.query;
   if (!paises) return res.status(400).json({ error: "Falta el parámetro paises" });
 
   const paisesArr = paises.split(",").map(x => x.trim());
   const session = driver.session({ database: "neo4j" });
 
   try {
-    let cypher, params;
-    if (tipo) {
-      cypher = `
-        MATCH (p:Pais)-[c:CONSUMED]->(t:CoffeeType)
-        WHERE p.nombre IN $paises AND t.name = $tipo
-        RETURN p.nombre AS pais, t.name AS tipo, c.year AS anio, c.value AS consumo
-        ORDER BY pais, anio
-      `;
-      params = { paises: paisesArr, tipo };
-    } else {
-      cypher = `
-        MATCH (p:Pais)-[c:CONSUMED]->(t:CoffeeType)
-        WHERE p.nombre IN $paises
-        RETURN p.nombre AS pais, t.name AS tipo, c.year AS anio, c.value AS consumo
-        ORDER BY pais, anio
-      `;
-      params = { paises: paisesArr };
-    }
+    const cypher = `
+      MATCH (p:Pais)-[c:CONSUMED]->(t:CoffeeType)
+      WHERE p.nombre IN $paises
+      RETURN p.nombre AS pais, c.year AS anio, SUM(toFloat(c.value)) AS consumo
+      ORDER BY pais, anio
+    `;
+    const params = { paises: paisesArr };
 
     const result = await session.run(cypher, params);
     const consumo = result.records.map(r => ({
       pais: r.get("pais"),
-      tipo: r.get("tipo"),
       anio: r.get("anio"),
-      consumo: r.get("consumo")
+      consumo: r.get("consumo") && r.get("consumo").toNumber
+        ? r.get("consumo").toNumber()
+        : r.get("consumo")
     }));
     res.json(consumo);
   } catch (error) {
